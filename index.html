@@ -196,9 +196,7 @@
       border-radius: 16px;
       border: 1px solid var(--border);
       background: white;
-      min-height: 220px;
-      display: grid;
-      place-items: center;
+      height: 456px;
       overflow: auto;
       padding: 18px;
     }
@@ -209,6 +207,7 @@
       line-height: 0;
       user-select: none;
       touch-action: none;
+      margin: 0 auto;
     }
 
     .preview svg {
@@ -376,6 +375,7 @@
     @media (max-width: 860px) {
       .grid { grid-template-columns: 1fr; }
       .wrap { width: min(100% - 20px, 960px); margin-top: 20px; }
+      .preview { height: 360px; }
     }
   </style>
 </head>
@@ -639,11 +639,13 @@ ${error.message}`, 'error');
         updateCropActionButtons();
         return;
       }
+      const viewport = capturePreviewViewport();
       state.lastPreviewIndex = index;
       updateActiveFilePill(index);
 
       previewEl.innerHTML = '';
       previewEl.appendChild(createCropEditor(item));
+      restorePreviewViewport(viewport);
 
       const pxWidth = Math.round(item.size.widthPt / PT_PER_PX);
       const pxHeight = Math.round(item.size.heightPt / PT_PER_PX);
@@ -669,6 +671,23 @@ ${error.message}`, 'error');
       `;
       metaEl.innerHTML += `<div><strong>余白調整:</strong> ${formatCropOffsets(trimOffsets)}</div>`;
       updateCropActionButtons(item);
+    }
+
+    function capturePreviewViewport() {
+      const scrollWidth = Math.max(1, previewEl.scrollWidth);
+      const scrollHeight = Math.max(1, previewEl.scrollHeight);
+      return {
+        x: (previewEl.scrollLeft + previewEl.clientWidth / 2) / scrollWidth,
+        y: (previewEl.scrollTop + previewEl.clientHeight / 2) / scrollHeight,
+      };
+    }
+
+    function restorePreviewViewport(viewport) {
+      if (!viewport) return;
+      const maxScrollLeft = Math.max(0, previewEl.scrollWidth - previewEl.clientWidth);
+      const maxScrollTop = Math.max(0, previewEl.scrollHeight - previewEl.clientHeight);
+      previewEl.scrollLeft = clamp(viewport.x * previewEl.scrollWidth - previewEl.clientWidth / 2, 0, maxScrollLeft);
+      previewEl.scrollTop = clamp(viewport.y * previewEl.scrollHeight - previewEl.clientHeight / 2, 0, maxScrollTop);
     }
 
     function createCropEditor(item) {
@@ -704,7 +723,7 @@ ${error.message}`, 'error');
 
     function applyPreviewScale(stage, previewSvg, item) {
       const availableWidth = Math.max(120, previewEl.clientWidth - 36);
-      const availableHeight = 420;
+      const availableHeight = Math.max(120, previewEl.clientHeight - 36);
       const fitScale = clamp(Math.min(
         availableWidth / item.editBounds.width,
         availableHeight / item.editBounds.height,
