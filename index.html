@@ -206,8 +206,6 @@
     .preview-stage {
       position: relative;
       display: inline-block;
-      max-width: 100%;
-      max-height: 420px;
       line-height: 0;
       user-select: none;
       touch-action: none;
@@ -215,8 +213,6 @@
 
     .preview svg {
       display: block;
-      max-width: 100%;
-      max-height: 420px;
       height: auto;
       width: auto;
     }
@@ -680,7 +676,7 @@ ${error.message}`, 'error');
       stage.className = 'preview-stage';
 
       const previewSvg = createNormalizedSvg(item.svgElement, item.editBounds);
-      applyPreviewScale(stage, previewSvg);
+      applyPreviewScale(stage, previewSvg, item);
       stage.appendChild(previewSvg);
 
       const cropBoxEl = document.createElement('div');
@@ -706,11 +702,22 @@ ${error.message}`, 'error');
       return stage;
     }
 
-    function applyPreviewScale(stage, previewSvg) {
-      stage.style.maxWidth = `${state.previewScale * 100}%`;
-      stage.style.maxHeight = `${420 * state.previewScale}px`;
-      previewSvg.style.maxWidth = '100%';
-      previewSvg.style.maxHeight = '100%';
+    function applyPreviewScale(stage, previewSvg, item) {
+      const availableWidth = Math.max(120, previewEl.clientWidth - 36);
+      const availableHeight = 420;
+      const fitScale = clamp(Math.min(
+        availableWidth / item.editBounds.width,
+        availableHeight / item.editBounds.height,
+        1
+      ), 0.05, 1);
+      const effectiveScale = fitScale * state.previewScale;
+
+      stage.style.width = `${item.editBounds.width * effectiveScale}px`;
+      stage.style.height = `${item.editBounds.height * effectiveScale}px`;
+      previewSvg.style.width = '100%';
+      previewSvg.style.height = '100%';
+      previewSvg.style.maxWidth = 'none';
+      previewSvg.style.maxHeight = 'none';
     }
 
     function parseSvgText(text) {
