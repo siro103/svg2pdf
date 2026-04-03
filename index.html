@@ -199,7 +199,7 @@
       min-height: 220px;
       display: grid;
       place-items: center;
-      overflow: hidden;
+      overflow: auto;
       padding: 18px;
     }
 
@@ -324,6 +324,19 @@
       gap: 10px;
     }
 
+    .zoom-value {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-width: 58px;
+      padding: 0 10px;
+      border-radius: 10px;
+      border: 1px solid var(--border);
+      background: rgba(255,255,255,0.06);
+      font-size: 13px;
+      color: var(--muted);
+    }
+
     .crop-help {
       margin-top: 10px;
     }
@@ -421,10 +434,13 @@
         <div class="small">プレビュー</div>
         <div id="preview" class="preview"><span class="hint">ここに SVG のプレビューが表示されます。</span></div>
         <div class="crop-actions">
+          <button id="zoomOutBtn" type="button" class="secondary">-</button>
+          <div id="zoomValue" class="zoom-value">100%</div>
+          <button id="zoomInBtn" type="button" class="secondary">+</button>
           <button id="trimToContentBtn" type="button" class="secondary" disabled>内容に合わせる</button>
           <button id="resetTrimBtn" type="button" class="secondary" disabled>全体に戻す</button>
         </div>
-        <div class="small crop-help">青い枠をドラッグして、PDFに残す範囲を調整できます。外側へ広げると余白を足せます。</div>
+        <div class="small crop-help">青い枠をドラッグして、PDFに残す範囲を調整できます。外側へ広げると余白を足せます。見づらいときは +/- でプレビュー倍率を変えられます。</div>
         <div id="meta" class="meta"></div>
         <div class="small" style="margin-top:16px;">
           補足:
@@ -458,6 +474,7 @@
       parsed: [],
       lastPreviewIndex: 0,
       cropDrag: null,
+      previewScale: 1,
     };
 
     const dropzone = document.getElementById('dropzone');
@@ -472,6 +489,9 @@
     const pageModeEl = document.getElementById('pageMode');
     const marginEl = document.getElementById('margin');
     const filenameModeEl = document.getElementById('filenameMode');
+    const zoomOutBtn = document.getElementById('zoomOutBtn');
+    const zoomInBtn = document.getElementById('zoomInBtn');
+    const zoomValueEl = document.getElementById('zoomValue');
     const trimToContentBtn = document.getElementById('trimToContentBtn');
     const resetTrimBtn = document.getElementById('resetTrimBtn');
 
@@ -509,6 +529,8 @@
 
     clearBtn.addEventListener('click', clearAll);
     convertBtn.addEventListener('click', convertAll);
+    zoomOutBtn.addEventListener('click', () => adjustPreviewScale(-0.2));
+    zoomInBtn.addEventListener('click', () => adjustPreviewScale(0.2));
     trimToContentBtn.addEventListener('click', trimPreviewToContent);
     resetTrimBtn.addEventListener('click', resetPreviewTrim);
     document.addEventListener('pointermove', handleCropPointerMove);
@@ -519,6 +541,7 @@
         renderPreview(state.lastPreviewIndex);
       }
     });
+    updatePreviewScaleUi();
 
     function setStatus(message, type = '') {
       statusEl.textContent = message;
@@ -530,6 +553,7 @@
       state.parsed = [];
       state.lastPreviewIndex = 0;
       state.cropDrag = null;
+      state.previewScale = 1;
       fileListEl.innerHTML = '';
       previewEl.innerHTML = '<span class="hint">ここに SVG のプレビューが表示されます。</span>';
       metaEl.innerHTML = '';
@@ -537,6 +561,7 @@
       convertBtn.disabled = true;
       hiddenMount.innerHTML = '';
       updateCropActionButtons();
+      updatePreviewScaleUi();
     }
 
     async function loadFiles(files) {
@@ -592,6 +617,20 @@ ${error.message}`, 'error');
       updateActiveFilePill(state.lastPreviewIndex);
     }
 
+    function updatePreviewScaleUi() {
+      zoomValueEl.textContent = `${Math.round(state.previewScale * 100)}%`;
+      zoomOutBtn.disabled = state.previewScale <= 0.6;
+      zoomInBtn.disabled = state.previewScale >= 3;
+    }
+
+    function adjustPreviewScale(delta) {
+      state.previewScale = clamp(Math.round((state.previewScale + delta) * 10) / 10, 0.6, 3);
+      updatePreviewScaleUi();
+      if (state.parsed.length) {
+        renderPreview(state.lastPreviewIndex);
+      }
+    }
+
     function updateActiveFilePill(activeIndex) {
       fileListEl.querySelectorAll('.file-pill').forEach((element) => {
         element.classList.toggle('active', Number(element.dataset.index) === activeIndex);
@@ -641,6 +680,7 @@ ${error.message}`, 'error');
       stage.className = 'preview-stage';
 
       const previewSvg = createNormalizedSvg(item.svgElement, item.editBounds);
+      applyPreviewScale(stage, previewSvg);
       stage.appendChild(previewSvg);
 
       const cropBoxEl = document.createElement('div');
@@ -664,6 +704,13 @@ ${error.message}`, 'error');
 
       stage.appendChild(cropBoxEl);
       return stage;
+    }
+
+    function applyPreviewScale(stage, previewSvg) {
+      stage.style.maxWidth = `${state.previewScale * 100}%`;
+      stage.style.maxHeight = `${420 * state.previewScale}px`;
+      previewSvg.style.maxWidth = '100%';
+      previewSvg.style.maxHeight = '100%';
     }
 
     function parseSvgText(text) {
