@@ -408,11 +408,14 @@
         try {
           const text = await file.text();
           const svgElement = parseSvgText(text);
-          const size = getSvgSizeInPoints(svgElement);
-          parsed.push({ file, text, svgElement, size });
+          const geometry = getSvgGeometry(svgElement);
+          const normalizedSvgElement = createNormalizedSvg(svgElement, geometry.effectiveBox);
+          const size = getSvgSizeInPoints(geometry);
+          parsed.push({ file, text, svgElement, normalizedSvgElement, geometry, size });
         } catch (error) {
           console.error(error);
-          setStatus(`読み込みに失敗: ${file.name}\n${error.message}`, 'error');
+          setStatus(`読み込みに失敗: ${file.name}
+${error.message}`, 'error');
           return;
         }
       }
@@ -445,15 +448,28 @@
       if (!item) return;
       state.lastPreviewIndex = index;
 
-      const previewSvg = item.svgElement.cloneNode(true);
+      const previewSvg = item.normalizedSvgElement.cloneNode(true);
       previewEl.innerHTML = '';
       previewEl.appendChild(previewSvg);
 
       const pxWidth = Math.round(item.size.widthPt / PT_PER_PX);
       const pxHeight = Math.round(item.size.heightPt / PT_PER_PX);
+      const declaredPxWidth = Math.round(item.geometry.declaredSize.widthPt / PT_PER_PX);
+      const declaredPxHeight = Math.round(item.geometry.declaredSize.heightPt / PT_PER_PX);
+      const actualBox = item.geometry.actualBox;
+      const actualBoxText = actualBox
+        ? `${formatNumber(actualBox.width)} × ${formatNumber(actualBox.height)} user units`
+        : '取得できませんでした';
+      const expandedText = item.geometry.wasExpanded
+        ? 'はい（描画範囲に合わせて自動補正）'
+        : 'いいえ';
+
       metaEl.innerHTML = `
         <div><strong>ファイル:</strong> ${escapeHtml(item.file.name)}</div>
-        <div><strong>SVG サイズ:</strong> ${pxWidth}px × ${pxHeight}px</div>
+        <div><strong>宣言サイズ:</strong> ${declaredPxWidth}px × ${declaredPxHeight}px</div>
+        <div><strong>補正後サイズ:</strong> ${pxWidth}px × ${pxHeight}px</div>
+        <div><strong>実描画範囲:</strong> ${escapeHtml(actualBoxText)}</div>
+        <div><strong>自動拡張:</strong> ${expandedText}</div>
         <div><strong>PDF 換算:</strong> ${item.size.widthPt.toFixed(2)}pt × ${item.size.heightPt.toFixed(2)}pt</div>
       `;
     }
@@ -479,48 +495,170 @@
       return svg;
     }
 
-    function parseLengthToPt(value) {
+    function parseLength(value) {
       if (value == null || value === '') return null;
-      const match = String(value).trim().match(/^([0-9.+-eE]+)\s*(px|pt|pc|mm|cm|in)?$/i);
+      const match = String(value).trim().match(/^([0-9.+\-eE]+)\s*(px|pt|pc|mm|cm|in)?$/i);
       if (!match) return null;
 
       const amount = Number(match[1]);
       const unit = (match[2] || 'px').toLowerCase();
       if (Number.isNaN(amount)) return null;
+      return { amount, unit };
+    }
 
-      switch (unit) {
-        case 'pt': return amount;
-        case 'px': return amount * PT_PER_PX;
-        case 'pc': return amount * 12;
-        case 'mm': return amount * MM_TO_PT;
-        case 'cm': return amount * CM_TO_PT;
-        case 'in': return amount * IN_TO_PT;
-        default: return amount * PT_PER_PX;
+    function convertLengthToPt(length) {
+      if (!length) return null;
+      switch (length.unit) {
+        case 'pt': return length.amount;
+        case 'px': return length.amount * PT_PER_PX;
+        case 'pc': return length.amount * 12;
+        case 'mm': return length.amount * MM_TO_PT;
+        case 'cm': return length.amount * CM_TO_PT;
+        case 'in': return length.amount * IN_TO_PT;
+        default: return length.amount * PT_PER_PX;
       }
     }
 
-    function getSvgSizeInPoints(svg) {
-      const widthAttr = svg.getAttribute('width');
-      const heightAttr = svg.getAttribute('height');
-      let widthPt = parseLengthToPt(widthAttr);
-      let heightPt = parseLengthToPt(heightAttr);
+    function convertLengthToPx(length) {
+      if (!length) return null;
+      switch (length.unit) {
+        case 'pt': return length.amount / PT_PER_PX;
+        case 'px': return length.amount;
+        case 'pc': return (length.amount * 12) / PT_PER_PX;
+        case 'mm': return (length.amount * MM_TO_PT) / PT_PER_PX;
+        case 'cm': return (length.amount * CM_TO_PT) / PT_PER_PX;
+        case 'in': return (length.amount * IN_TO_PT) / PT_PER_PX;
+        default: return length.amount;
+      }
+    }
 
+    function parseViewBox(svg) {
       const viewBoxAttr = svg.getAttribute('viewBox');
-      if ((!widthPt || !heightPt) && viewBoxAttr) {
-        const parts = viewBoxAttr.trim().split(/[\s,]+/).map(Number);
-        if (parts.length === 4 && parts.every((n) => Number.isFinite(n))) {
-          const [, , vbWidth, vbHeight] = parts;
-          if (!widthPt) widthPt = vbWidth * PT_PER_PX;
-          if (!heightPt) heightPt = vbHeight * PT_PER_PX;
-        }
+      if (!viewBoxAttr) return null;
+      const parts = viewBoxAttr.trim().split(/[\s,]+/).map(Number);
+      if (parts.length !== 4 || !parts.every((n) => Number.isFinite(n))) return null;
+      const [x, y, width, height] = parts;
+      if (width <= 0 || height <= 0) return null;
+      return { x, y, width, height };
+    }
+
+    function getDeclaredBox(svg) {
+      const viewBox = parseViewBox(svg);
+      if (viewBox) {
+        return viewBox;
       }
 
-      if (!widthPt || !heightPt) {
-        widthPt = widthPt || 600 * PT_PER_PX;
-        heightPt = heightPt || 400 * PT_PER_PX;
-      }
+      const widthPx = convertLengthToPx(parseLength(svg.getAttribute('width')));
+      const heightPx = convertLengthToPx(parseLength(svg.getAttribute('height')));
+      return {
+        x: 0,
+        y: 0,
+        width: widthPx || 600,
+        height: heightPx || 400,
+      };
+    }
+
+    function getDeclaredSizeInPoints(svg, declaredBox) {
+      let widthPt = convertLengthToPt(parseLength(svg.getAttribute('width')));
+      let heightPt = convertLengthToPt(parseLength(svg.getAttribute('height')));
+
+      if (!widthPt) widthPt = declaredBox.width * PT_PER_PX;
+      if (!heightPt) heightPt = declaredBox.height * PT_PER_PX;
 
       return { widthPt, heightPt };
+    }
+
+    function measureSvgBoundingBox(svg, declaredBox) {
+      const mount = document.createElement('div');
+      mount.className = 'hidden';
+      hiddenMount.appendChild(mount);
+
+      const clone = svg.cloneNode(true);
+      clone.setAttribute('width', String(Math.max(1, declaredBox.width)));
+      clone.setAttribute('height', String(Math.max(1, declaredBox.height)));
+      clone.style.overflow = 'visible';
+      mount.appendChild(clone);
+
+      try {
+        const bbox = clone.getBBox();
+        if (!Number.isFinite(bbox.x) || !Number.isFinite(bbox.y) || !Number.isFinite(bbox.width) || !Number.isFinite(bbox.height)) {
+          return null;
+        }
+        if (bbox.width === 0 && bbox.height === 0) {
+          return null;
+        }
+        return {
+          x: bbox.x,
+          y: bbox.y,
+          width: bbox.width,
+          height: bbox.height,
+        };
+      } catch (error) {
+        console.warn('getBBox failed:', error);
+        return null;
+      } finally {
+        mount.remove();
+      }
+    }
+
+    function unionBoxes(a, b) {
+      if (!a) return b;
+      if (!b) return a;
+      const x1 = Math.min(a.x, b.x);
+      const y1 = Math.min(a.y, b.y);
+      const x2 = Math.max(a.x + a.width, b.x + b.width);
+      const y2 = Math.max(a.y + a.height, b.y + b.height);
+      return {
+        x: x1,
+        y: y1,
+        width: x2 - x1,
+        height: y2 - y1,
+      };
+    }
+
+    function boxesDiffer(a, b, tolerance = 0.01) {
+      if (!a || !b) return false;
+      return Math.abs(a.x - b.x) > tolerance
+        || Math.abs(a.y - b.y) > tolerance
+        || Math.abs(a.width - b.width) > tolerance
+        || Math.abs(a.height - b.height) > tolerance;
+    }
+
+    function getSvgGeometry(svg) {
+      const declaredBox = getDeclaredBox(svg);
+      const declaredSize = getDeclaredSizeInPoints(svg, declaredBox);
+      const actualBox = measureSvgBoundingBox(svg, declaredBox);
+      const effectiveBox = unionBoxes(declaredBox, actualBox) || declaredBox;
+      return {
+        declaredBox,
+        actualBox,
+        effectiveBox,
+        declaredSize,
+        wasExpanded: boxesDiffer(declaredBox, effectiveBox),
+      };
+    }
+
+    function getSvgSizeInPoints(geometry) {
+      const scaleX = geometry.declaredBox.width > 0
+        ? geometry.declaredSize.widthPt / geometry.declaredBox.width
+        : PT_PER_PX;
+      const scaleY = geometry.declaredBox.height > 0
+        ? geometry.declaredSize.heightPt / geometry.declaredBox.height
+        : PT_PER_PX;
+
+      return {
+        widthPt: geometry.effectiveBox.width * scaleX,
+        heightPt: geometry.effectiveBox.height * scaleY,
+      };
+    }
+
+    function createNormalizedSvg(svg, box) {
+      const clone = svg.cloneNode(true);
+      clone.setAttribute('viewBox', `${box.x} ${box.y} ${box.width} ${box.height}`);
+      clone.setAttribute('width', String(Math.max(1, box.width)));
+      clone.setAttribute('height', String(Math.max(1, box.height)));
+      clone.style.overflow = 'visible';
+      return clone;
     }
 
     function getPageConfig(svgSizePt) {
@@ -599,7 +737,7 @@
       mount.className = 'hidden';
       hiddenMount.appendChild(mount);
 
-      const svgForPdf = item.svgElement.cloneNode(true);
+      const svgForPdf = item.normalizedSvgElement.cloneNode(true);
       mount.appendChild(svgForPdf);
 
       const page = getPageConfig(item.size);
@@ -619,6 +757,11 @@
 
       doc.save(getOutputName(item.file.name));
       mount.remove();
+    }
+
+    function formatNumber(value) {
+      if (!Number.isFinite(value)) return '-';
+      return Math.round(value * 100) / 100;
     }
 
     function escapeHtml(value) {
