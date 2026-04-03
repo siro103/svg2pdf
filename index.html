@@ -1,0 +1,634 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>SVG to PDF Converter</title>
+  <style>
+    :root {
+      --bg: #0b1020;
+      --panel: #121a2b;
+      --panel-2: #18233a;
+      --text: #e8eefc;
+      --muted: #aab6d3;
+      --accent: #7aa2ff;
+      --accent-2: #91f7d0;
+      --danger: #ff8585;
+      --border: rgba(255,255,255,0.12);
+      --shadow: 0 10px 30px rgba(0,0,0,0.25);
+      --radius: 18px;
+    }
+
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      background: linear-gradient(180deg, #0a1020 0%, #10182a 100%);
+      color: var(--text);
+      min-height: 100vh;
+    }
+
+    .wrap {
+      width: min(960px, calc(100% - 32px));
+      margin: 32px auto 48px;
+    }
+
+    h1 {
+      font-size: clamp(28px, 4vw, 42px);
+      margin: 0 0 10px;
+      letter-spacing: 0.02em;
+    }
+
+    p.lead {
+      margin: 0 0 24px;
+      color: var(--muted);
+      line-height: 1.7;
+    }
+
+    .grid {
+      display: grid;
+      grid-template-columns: 1.35fr 0.95fr;
+      gap: 18px;
+    }
+
+    .card {
+      background: linear-gradient(180deg, rgba(255,255,255,0.02), rgba(255,255,255,0.01));
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      box-shadow: var(--shadow);
+      padding: 20px;
+      backdrop-filter: blur(8px);
+    }
+
+    .dropzone {
+      border: 2px dashed rgba(122,162,255,0.55);
+      border-radius: 16px;
+      padding: 28px;
+      text-align: center;
+      background: rgba(122,162,255,0.06);
+      transition: 180ms ease;
+      cursor: pointer;
+    }
+
+    .dropzone.dragover {
+      transform: translateY(-1px);
+      border-color: var(--accent-2);
+      background: rgba(145,247,208,0.10);
+    }
+
+    .dropzone strong {
+      display: block;
+      font-size: 18px;
+      margin-bottom: 8px;
+    }
+
+    .hint {
+      color: var(--muted);
+      font-size: 14px;
+      line-height: 1.6;
+    }
+
+    .row {
+      display: grid;
+      gap: 10px;
+      margin-top: 16px;
+    }
+
+    .row.two {
+      grid-template-columns: 1fr 1fr;
+    }
+
+    label {
+      display: block;
+      font-size: 14px;
+      margin-bottom: 6px;
+      color: var(--muted);
+    }
+
+    select, input[type="text"], input[type="number"] {
+      width: 100%;
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      background: var(--panel-2);
+      color: var(--text);
+      padding: 12px 14px;
+      outline: none;
+    }
+
+    .actions {
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+      margin-top: 18px;
+    }
+
+    button, .secondary {
+      appearance: none;
+      border: 0;
+      border-radius: 12px;
+      padding: 12px 16px;
+      font-weight: 700;
+      cursor: pointer;
+      transition: 160ms ease;
+      text-decoration: none;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    button.primary {
+      background: linear-gradient(135deg, var(--accent), #98b8ff);
+      color: #08101f;
+    }
+
+    button.primary:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
+
+    .secondary {
+      background: rgba(255,255,255,0.06);
+      color: var(--text);
+      border: 1px solid var(--border);
+    }
+
+    button:hover, .secondary:hover { transform: translateY(-1px); }
+
+    .status {
+      margin-top: 18px;
+      padding: 12px 14px;
+      border-radius: 12px;
+      background: rgba(255,255,255,0.04);
+      border: 1px solid var(--border);
+      min-height: 48px;
+      line-height: 1.6;
+      color: var(--muted);
+      white-space: pre-wrap;
+    }
+
+    .status.error {
+      color: #ffd5d5;
+      background: rgba(255,133,133,0.10);
+      border-color: rgba(255,133,133,0.35);
+    }
+
+    .status.success {
+      color: #d7fff0;
+      background: rgba(145,247,208,0.10);
+      border-color: rgba(145,247,208,0.35);
+    }
+
+    .meta {
+      display: grid;
+      gap: 10px;
+      font-size: 14px;
+      color: var(--muted);
+      margin-top: 10px;
+    }
+
+    .meta strong {
+      color: var(--text);
+      font-weight: 700;
+    }
+
+    .preview {
+      margin-top: 16px;
+      border-radius: 16px;
+      border: 1px solid var(--border);
+      background: white;
+      min-height: 220px;
+      display: grid;
+      place-items: center;
+      overflow: hidden;
+      padding: 18px;
+    }
+
+    .preview svg {
+      max-width: 100%;
+      max-height: 420px;
+      height: auto;
+      width: auto;
+    }
+
+    .list {
+      margin-top: 14px;
+      display: grid;
+      gap: 10px;
+    }
+
+    .file-pill {
+      border: 1px solid var(--border);
+      background: rgba(255,255,255,0.04);
+      border-radius: 12px;
+      padding: 10px 12px;
+      font-size: 14px;
+      color: var(--text);
+    }
+
+    .small {
+      font-size: 13px;
+      color: var(--muted);
+      line-height: 1.7;
+    }
+
+    .hidden {
+      position: absolute !important;
+      left: -99999px !important;
+      top: -99999px !important;
+      width: auto !important;
+      height: auto !important;
+      visibility: hidden !important;
+      pointer-events: none !important;
+    }
+
+    @media (max-width: 860px) {
+      .grid { grid-template-columns: 1fr; }
+      .wrap { width: min(100% - 20px, 960px); margin-top: 20px; }
+    }
+  </style>
+</head>
+<body>
+  <main class="wrap">
+    <h1>SVG → PDF</h1>
+    <p class="lead">GitHub Pages でそのまま動く、ブラウザ完結の変換ツールです。SVG ファイルをドロップして PDF を生成します。変換は端末内で実行され、サーバー送信は行いません。</p>
+
+    <div class="grid">
+      <section class="card">
+        <div id="dropzone" class="dropzone" tabindex="0" role="button" aria-label="SVG ファイルを選択">
+          <strong>SVG をここにドロップ</strong>
+          <div class="hint">またはクリックして選択。複数ファイルもまとめて変換できます。</div>
+          <input id="fileInput" type="file" accept=".svg,image/svg+xml" multiple hidden />
+        </div>
+
+        <div class="row two">
+          <div>
+            <label for="pageMode">PDF ページサイズ</label>
+            <select id="pageMode">
+              <option value="auto">SVG と同じサイズ</option>
+              <option value="a4">A4 に合わせる</option>
+              <option value="letter">Letter に合わせる</option>
+            </select>
+          </div>
+          <div>
+            <label for="margin">余白 (pt)</label>
+            <input id="margin" type="number" min="0" step="1" value="16" />
+          </div>
+        </div>
+
+        <div class="row">
+          <div>
+            <label for="filenameMode">出力ファイル名</label>
+            <select id="filenameMode">
+              <option value="same">元ファイル名を使う</option>
+              <option value="suffix">末尾に _converted を付ける</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="actions">
+          <button id="convertBtn" class="primary" disabled>PDF に変換</button>
+          <button id="clearBtn" type="button" class="secondary">クリア</button>
+        </div>
+
+        <div id="status" class="status">SVG ファイルを選択してください。</div>
+        <div id="fileList" class="list"></div>
+      </section>
+
+      <aside class="card">
+        <div class="small">プレビュー</div>
+        <div id="preview" class="preview"><span class="hint">ここに SVG のプレビューが表示されます。</span></div>
+        <div id="meta" class="meta"></div>
+        <div class="small" style="margin-top:16px;">
+          補足:
+          <br>・変換はブラウザ内で行います。
+          <br>・テキストや図形は可能な限りベクターのまま維持します。
+          <br>・外部フォントや外部画像参照を含む SVG は、環境によって見た目が変わる場合があります。
+        </div>
+      </aside>
+    </div>
+  </main>
+
+  <div id="hiddenMount" class="hidden" aria-hidden="true"></div>
+
+  <script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/svg2pdf.js@2.5.0/dist/svg2pdf.umd.min.js"></script>
+  <script>
+    const PT_PER_PX = 72 / 96;
+    const MM_TO_PT = 72 / 25.4;
+    const CM_TO_PT = 72 / 2.54;
+    const IN_TO_PT = 72;
+
+    const pageFormats = {
+      a4: { portrait: [595.28, 841.89], landscape: [841.89, 595.28] },
+      letter: { portrait: [612, 792], landscape: [792, 612] },
+    };
+
+    const state = {
+      files: [],
+      parsed: [],
+      lastPreviewIndex: 0,
+    };
+
+    const dropzone = document.getElementById('dropzone');
+    const fileInput = document.getElementById('fileInput');
+    const convertBtn = document.getElementById('convertBtn');
+    const clearBtn = document.getElementById('clearBtn');
+    const statusEl = document.getElementById('status');
+    const fileListEl = document.getElementById('fileList');
+    const previewEl = document.getElementById('preview');
+    const metaEl = document.getElementById('meta');
+    const hiddenMount = document.getElementById('hiddenMount');
+    const pageModeEl = document.getElementById('pageMode');
+    const marginEl = document.getElementById('margin');
+    const filenameModeEl = document.getElementById('filenameMode');
+
+    dropzone.addEventListener('click', () => fileInput.click());
+    dropzone.addEventListener('keydown', (event) => {
+      if (event.key === 'Enter' || event.key === ' ') {
+        event.preventDefault();
+        fileInput.click();
+      }
+    });
+
+    fileInput.addEventListener('change', async (event) => {
+      await loadFiles(Array.from(event.target.files || []));
+      fileInput.value = '';
+    });
+
+    ['dragenter', 'dragover'].forEach((type) => {
+      dropzone.addEventListener(type, (event) => {
+        event.preventDefault();
+        dropzone.classList.add('dragover');
+      });
+    });
+
+    ['dragleave', 'drop'].forEach((type) => {
+      dropzone.addEventListener(type, (event) => {
+        event.preventDefault();
+        dropzone.classList.remove('dragover');
+      });
+    });
+
+    dropzone.addEventListener('drop', async (event) => {
+      const files = Array.from(event.dataTransfer?.files || []);
+      await loadFiles(files);
+    });
+
+    clearBtn.addEventListener('click', clearAll);
+    convertBtn.addEventListener('click', convertAll);
+
+    function setStatus(message, type = '') {
+      statusEl.textContent = message;
+      statusEl.className = 'status' + (type ? ` ${type}` : '');
+    }
+
+    function clearAll() {
+      state.files = [];
+      state.parsed = [];
+      state.lastPreviewIndex = 0;
+      fileListEl.innerHTML = '';
+      previewEl.innerHTML = '<span class="hint">ここに SVG のプレビューが表示されます。</span>';
+      metaEl.innerHTML = '';
+      setStatus('SVG ファイルを選択してください。');
+      convertBtn.disabled = true;
+      hiddenMount.innerHTML = '';
+    }
+
+    async function loadFiles(files) {
+      const svgFiles = files.filter((file) => file.type === 'image/svg+xml' || file.name.toLowerCase().endsWith('.svg'));
+      if (!svgFiles.length) {
+        setStatus('SVG ファイルが見つかりませんでした。拡張子 .svg のファイルを選んでください。', 'error');
+        return;
+      }
+
+      setStatus('SVG を読み込んでいます…');
+      const parsed = [];
+
+      for (const file of svgFiles) {
+        try {
+          const text = await file.text();
+          const svgElement = parseSvgText(text);
+          const size = getSvgSizeInPoints(svgElement);
+          parsed.push({ file, text, svgElement, size });
+        } catch (error) {
+          console.error(error);
+          setStatus(`読み込みに失敗: ${file.name}\n${error.message}`, 'error');
+          return;
+        }
+      }
+
+      state.files = svgFiles;
+      state.parsed = parsed;
+      state.lastPreviewIndex = 0;
+      renderFileList();
+      renderPreview(0);
+      convertBtn.disabled = false;
+      setStatus(`${svgFiles.length} 件の SVG を読み込みました。変換ボタンを押すと PDF を保存します。`, 'success');
+    }
+
+    function renderFileList() {
+      fileListEl.innerHTML = '';
+      state.parsed.forEach((item, index) => {
+        const div = document.createElement('button');
+        div.type = 'button';
+        div.className = 'file-pill';
+        div.textContent = `${index + 1}. ${item.file.name}`;
+        div.style.textAlign = 'left';
+        div.style.cursor = 'pointer';
+        div.addEventListener('click', () => renderPreview(index));
+        fileListEl.appendChild(div);
+      });
+    }
+
+    function renderPreview(index) {
+      const item = state.parsed[index];
+      if (!item) return;
+      state.lastPreviewIndex = index;
+
+      const previewSvg = item.svgElement.cloneNode(true);
+      previewEl.innerHTML = '';
+      previewEl.appendChild(previewSvg);
+
+      const pxWidth = Math.round(item.size.widthPt / PT_PER_PX);
+      const pxHeight = Math.round(item.size.heightPt / PT_PER_PX);
+      metaEl.innerHTML = `
+        <div><strong>ファイル:</strong> ${escapeHtml(item.file.name)}</div>
+        <div><strong>SVG サイズ:</strong> ${pxWidth}px × ${pxHeight}px</div>
+        <div><strong>PDF 換算:</strong> ${item.size.widthPt.toFixed(2)}pt × ${item.size.heightPt.toFixed(2)}pt</div>
+      `;
+    }
+
+    function parseSvgText(text) {
+      const parser = new DOMParser();
+      const doc = parser.parseFromString(text, 'image/svg+xml');
+      const svg = doc.documentElement;
+
+      if (!svg || svg.nodeName.toLowerCase() !== 'svg') {
+        throw new Error('SVG として解釈できませんでした。');
+      }
+
+      const parseError = svg.querySelector('parsererror');
+      if (parseError) {
+        throw new Error('SVG の構文エラーがあります。');
+      }
+
+      if (!svg.getAttribute('xmlns')) {
+        svg.setAttribute('xmlns', 'http://www.w3.org/2000/svg');
+      }
+
+      return svg;
+    }
+
+    function parseLengthToPt(value) {
+      if (value == null || value === '') return null;
+      const match = String(value).trim().match(/^([0-9.+-eE]+)\s*(px|pt|pc|mm|cm|in)?$/i);
+      if (!match) return null;
+
+      const amount = Number(match[1]);
+      const unit = (match[2] || 'px').toLowerCase();
+      if (Number.isNaN(amount)) return null;
+
+      switch (unit) {
+        case 'pt': return amount;
+        case 'px': return amount * PT_PER_PX;
+        case 'pc': return amount * 12;
+        case 'mm': return amount * MM_TO_PT;
+        case 'cm': return amount * CM_TO_PT;
+        case 'in': return amount * IN_TO_PT;
+        default: return amount * PT_PER_PX;
+      }
+    }
+
+    function getSvgSizeInPoints(svg) {
+      const widthAttr = svg.getAttribute('width');
+      const heightAttr = svg.getAttribute('height');
+      let widthPt = parseLengthToPt(widthAttr);
+      let heightPt = parseLengthToPt(heightAttr);
+
+      const viewBoxAttr = svg.getAttribute('viewBox');
+      if ((!widthPt || !heightPt) && viewBoxAttr) {
+        const parts = viewBoxAttr.trim().split(/[\s,]+/).map(Number);
+        if (parts.length === 4 && parts.every((n) => Number.isFinite(n))) {
+          const [, , vbWidth, vbHeight] = parts;
+          if (!widthPt) widthPt = vbWidth * PT_PER_PX;
+          if (!heightPt) heightPt = vbHeight * PT_PER_PX;
+        }
+      }
+
+      if (!widthPt || !heightPt) {
+        widthPt = widthPt || 600 * PT_PER_PX;
+        heightPt = heightPt || 400 * PT_PER_PX;
+      }
+
+      return { widthPt, heightPt };
+    }
+
+    function getPageConfig(svgSizePt) {
+      const mode = pageModeEl.value;
+      const margin = Math.max(0, Number(marginEl.value) || 0);
+
+      if (mode === 'auto') {
+        return {
+          format: [svgSizePt.widthPt, svgSizePt.heightPt],
+          renderWidth: svgSizePt.widthPt,
+          renderHeight: svgSizePt.heightPt,
+          x: 0,
+          y: 0,
+          orientation: svgSizePt.widthPt >= svgSizePt.heightPt ? 'landscape' : 'portrait',
+        };
+      }
+
+      const base = pageFormats[mode];
+      const orientation = svgSizePt.widthPt >= svgSizePt.heightPt ? 'landscape' : 'portrait';
+      const [pageWidth, pageHeight] = base[orientation];
+      const maxWidth = Math.max(1, pageWidth - margin * 2);
+      const maxHeight = Math.max(1, pageHeight - margin * 2);
+      const scale = Math.min(maxWidth / svgSizePt.widthPt, maxHeight / svgSizePt.heightPt);
+      const renderWidth = svgSizePt.widthPt * scale;
+      const renderHeight = svgSizePt.heightPt * scale;
+      const x = (pageWidth - renderWidth) / 2;
+      const y = (pageHeight - renderHeight) / 2;
+
+      return {
+        format: [pageWidth, pageHeight],
+        renderWidth,
+        renderHeight,
+        x,
+        y,
+        orientation,
+      };
+    }
+
+    function getOutputName(filename) {
+      const base = filename.replace(/\.svg$/i, '');
+      if (filenameModeEl.value === 'suffix') {
+        return `${base}_converted.pdf`;
+      }
+      return `${base}.pdf`;
+    }
+
+    async function convertAll() {
+      if (!state.parsed.length) return;
+
+      convertBtn.disabled = true;
+      setStatus('PDF を生成しています…');
+
+      try {
+        for (let index = 0; index < state.parsed.length; index += 1) {
+          const item = state.parsed[index];
+          renderPreview(index);
+          setStatus(`PDF を生成しています… (${index + 1}/${state.parsed.length})\n${item.file.name}`);
+          await convertOne(item);
+        }
+        setStatus(`変換が完了しました。${state.parsed.length} 件の PDF を保存しました。`, 'success');
+      } catch (error) {
+        console.error(error);
+        setStatus(`変換に失敗しました。\n${error.message}`, 'error');
+      } finally {
+        convertBtn.disabled = false;
+      }
+    }
+
+    async function convertOne(item) {
+      const { jsPDF } = window.jspdf;
+      if (!jsPDF) {
+        throw new Error('jsPDF の読み込みに失敗しました。ネットワーク接続を確認してください。');
+      }
+
+      const mount = document.createElement('div');
+      mount.className = 'hidden';
+      hiddenMount.appendChild(mount);
+
+      const svgForPdf = item.svgElement.cloneNode(true);
+      mount.appendChild(svgForPdf);
+
+      const page = getPageConfig(item.size);
+      const doc = new jsPDF({
+        orientation: page.orientation,
+        unit: 'pt',
+        format: page.format,
+        compress: true,
+      });
+
+      await doc.svg(svgForPdf, {
+        x: page.x,
+        y: page.y,
+        width: page.renderWidth,
+        height: page.renderHeight,
+      });
+
+      doc.save(getOutputName(item.file.name));
+      mount.remove();
+    }
+
+    function escapeHtml(value) {
+      return String(value)
+        .replaceAll('&', '&amp;')
+        .replaceAll('<', '&lt;')
+        .replaceAll('>', '&gt;')
+        .replaceAll('"', '&quot;')
+        .replaceAll("'", '&#39;');
+    }
+  </script>
+</body>
+</html>
