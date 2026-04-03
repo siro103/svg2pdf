@@ -424,7 +424,7 @@
           <button id="trimToContentBtn" type="button" class="secondary" disabled>内容に合わせる</button>
           <button id="resetTrimBtn" type="button" class="secondary" disabled>全体に戻す</button>
         </div>
-        <div class="small crop-help">青い枠をドラッグして、PDFに残す範囲を調整できます。枠の内側だけが出力されます。</div>
+        <div class="small crop-help">青い枠をドラッグして、PDFに残す範囲を調整できます。外側へ広げると余白を足せます。</div>
         <div id="meta" class="meta"></div>
         <div class="small" style="margin-top:16px;">
           補足:
@@ -555,10 +555,10 @@
           const svgElement = parseSvgText(text);
           const geometry = getSvgGeometry(svgElement);
           const baseBox = cloneBox(geometry.effectiveBox);
+          const editBounds = createEditBounds(baseBox);
           const cropBox = cloneBox(baseBox);
-          const previewSvgElement = createNormalizedSvg(svgElement, baseBox);
           const size = getSvgSizeInPoints(geometry, cropBox);
-          parsed.push({ file, text, svgElement, previewSvgElement, geometry, baseBox, cropBox, size });
+          parsed.push({ file, text, svgElement, geometry, baseBox, editBounds, cropBox, size });
         } catch (error) {
           console.error(error);
           setStatus(`読み込みに失敗: ${file.name}
@@ -632,7 +632,7 @@ ${error.message}`, 'error');
         <div><strong>自動拡張:</strong> ${expandedText}</div>
         <div><strong>PDF 換算:</strong> ${item.size.widthPt.toFixed(2)}pt × ${item.size.heightPt.toFixed(2)}pt</div>
       `;
-      metaEl.innerHTML += `<div><strong>トリミング:</strong> ${isTrimmed ? `左 ${trimOffsets.left.toFixed(2)}pt / 上 ${trimOffsets.top.toFixed(2)}pt / 右 ${trimOffsets.right.toFixed(2)}pt / 下 ${trimOffsets.bottom.toFixed(2)}pt` : 'なし'}</div>`;
+      metaEl.innerHTML += `<div><strong>余白調整:</strong> ${formatCropOffsets(trimOffsets)}</div>`;
       updateCropActionButtons(item);
     }
 
@@ -640,13 +640,13 @@ ${error.message}`, 'error');
       const stage = document.createElement('div');
       stage.className = 'preview-stage';
 
-      const previewSvg = item.previewSvgElement.cloneNode(true);
+      const previewSvg = createNormalizedSvg(item.svgElement, item.editBounds);
       stage.appendChild(previewSvg);
 
       const cropBoxEl = document.createElement('div');
       cropBoxEl.className = 'crop-box';
       cropBoxEl.dataset.handle = 'move';
-      applyCropBoxStyle(cropBoxEl, item.cropBox, item.baseBox);
+      applyCropBoxStyle(cropBoxEl, item.cropBox, item.editBounds);
       cropBoxEl.addEventListener('pointerdown', handleCropPointerDown);
 
       const sizeEl = document.createElement('div');
@@ -858,19 +858,45 @@ ${error.message}`, 'error');
       };
     }
 
+    function createEditBounds(baseBox) {
+      const padX = Math.max(40, baseBox.width * 0.3);
+      const padY = Math.max(40, baseBox.height * 0.3);
+      return {
+        x: baseBox.x - padX,
+        y: baseBox.y - padY,
+        width: baseBox.width + padX * 2,
+        height: baseBox.height + padY * 2,
+      };
+    }
+
+    function expandEditBounds(editBounds, targetBox, baseBox) {
+      const padX = Math.max(40, baseBox.width * 0.2);
+      const padY = Math.max(40, baseBox.height * 0.2);
+      const x1 = Math.min(editBounds.x, targetBox.x - padX);
+      const y1 = Math.min(editBounds.y, targetBox.y - padY);
+      const x2 = Math.max(editBounds.x + editBounds.width, targetBox.x + targetBox.width + padX);
+      const y2 = Math.max(editBounds.y + editBounds.height, targetBox.y + targetBox.height + padY);
+      return {
+        x: x1,
+        y: y1,
+        width: x2 - x1,
+        height: y2 - y1,
+      };
+    }
+
     function clamp(value, min, max) {
       return Math.min(Math.max(value, min), max);
     }
 
-    function getMinimumCropSize(bounds) {
+    function getMinimumCropSize(referenceBox) {
       return {
-        width: Math.min(bounds.width, Math.max(4, bounds.width * 0.03)),
-        height: Math.min(bounds.height, Math.max(4, bounds.height * 0.03)),
+        width: Math.min(referenceBox.width, Math.max(4, referenceBox.width * 0.03)),
+        height: Math.min(referenceBox.height, Math.max(4, referenceBox.height * 0.03)),
       };
     }
 
-    function normalizeCropBox(box, bounds) {
-      const minSize = getMinimumCropSize(bounds);
+    function normalizeCropBox(box, bounds, minSizeReference = bounds) {
+      const minSize = getMinimumCropSize(minSizeReference);
       const rightLimit = bounds.x + bounds.width;
       const bottomLimit = bounds.y + bounds.height;
 
@@ -895,11 +921,20 @@ ${error.message}`, 'error');
       const cropBottom = item.cropBox.y + item.cropBox.height;
 
       return {
-        left: Math.max(0, (item.cropBox.x - item.baseBox.x) * scale.x),
-        top: Math.max(0, (item.cropBox.y - item.baseBox.y) * scale.y),
-        right: Math.max(0, (baseRight - cropRight) * scale.x),
-        bottom: Math.max(0, (baseBottom - cropBottom) * scale.y),
+        left: (item.baseBox.x - item.cropBox.x) * scale.x,
+        top: (item.baseBox.y - item.cropBox.y) * scale.y,
+        right: (cropRight - baseRight) * scale.x,
+        bottom: (cropBottom - baseBottom) * scale.y,
       };
+    }
+
+    function formatCropOffset(value) {
+      if (Math.abs(value) < 0.01) return '0.00pt';
+      return value > 0 ? `+${value.toFixed(2)}pt` : `${value.toFixed(2)}pt`;
+    }
+
+    function formatCropOffsets(offsets) {
+      return `左 ${formatCropOffset(offsets.left)} / 上 ${formatCropOffset(offsets.top)} / 右 ${formatCropOffset(offsets.right)} / 下 ${formatCropOffset(offsets.bottom)}`;
     }
 
     function getCropBoxStyle(box, bounds) {
@@ -922,7 +957,7 @@ ${error.message}`, 'error');
     function updateItemCrop(index, nextCropBox) {
       const item = state.parsed[index];
       if (!item) return;
-      item.cropBox = normalizeCropBox(nextCropBox, item.baseBox);
+      item.cropBox = normalizeCropBox(nextCropBox, item.editBounds, item.baseBox);
       item.size = getSvgSizeInPoints(item.geometry, item.cropBox);
       if (state.lastPreviewIndex === index) {
         renderPreview(index);
@@ -965,7 +1000,7 @@ ${error.message}`, 'error');
         startX: event.clientX,
         startY: event.clientY,
         startCropBox: cloneBox(item.cropBox),
-        bounds: cloneBox(item.baseBox),
+        bounds: cloneBox(item.editBounds),
         stageRect: stage.getBoundingClientRect(),
       };
     }
@@ -978,50 +1013,61 @@ ${error.message}`, 'error');
 
       const dx = ((event.clientX - startX) / stageRect.width) * bounds.width;
       const dy = ((event.clientY - startY) / stageRect.height) * bounds.height;
+      const item = state.parsed[index];
+      if (!item) return;
+      const rawCropBox = getDraggedCropBox(startCropBox, handle, dx, dy);
+      item.editBounds = expandEditBounds(item.editBounds, rawCropBox, item.baseBox);
+      state.cropDrag.bounds = cloneBox(item.editBounds);
+      updateItemCrop(index, rawCropBox);
 
-      updateItemCrop(index, getDraggedCropBox(startCropBox, bounds, handle, dx, dy));
+      const refreshedStage = previewEl.querySelector('.preview-stage');
+      if (refreshedStage) {
+        state.cropDrag.startX = event.clientX;
+        state.cropDrag.startY = event.clientY;
+        state.cropDrag.startCropBox = cloneBox(item.cropBox);
+        state.cropDrag.stageRect = refreshedStage.getBoundingClientRect();
+      }
     }
 
     function endCropDrag() {
       state.cropDrag = null;
     }
 
-    function getDraggedCropBox(startCropBox, bounds, handle, dx, dy) {
-      const minSize = getMinimumCropSize(bounds);
-
+    function getDraggedCropBox(startCropBox, handle, dx, dy) {
       if (handle === 'move') {
-        return normalizeCropBox({
+        return {
           x: startCropBox.x + dx,
           y: startCropBox.y + dy,
           width: startCropBox.width,
           height: startCropBox.height,
-        }, bounds);
+        };
       }
 
       let left = startCropBox.x;
       let top = startCropBox.y;
       let right = startCropBox.x + startCropBox.width;
       let bottom = startCropBox.y + startCropBox.height;
+      const minSize = getMinimumCropSize(startCropBox);
 
       if (handle.includes('w')) {
-        left = clamp(startCropBox.x + dx, bounds.x, right - minSize.width);
+        left = Math.min(startCropBox.x + dx, right - minSize.width);
       }
       if (handle.includes('e')) {
-        right = clamp(startCropBox.x + startCropBox.width + dx, left + minSize.width, bounds.x + bounds.width);
+        right = Math.max(startCropBox.x + startCropBox.width + dx, left + minSize.width);
       }
       if (handle.includes('n')) {
-        top = clamp(startCropBox.y + dy, bounds.y, bottom - minSize.height);
+        top = Math.min(startCropBox.y + dy, bottom - minSize.height);
       }
       if (handle.includes('s')) {
-        bottom = clamp(startCropBox.y + startCropBox.height + dy, top + minSize.height, bounds.y + bounds.height);
+        bottom = Math.max(startCropBox.y + startCropBox.height + dy, top + minSize.height);
       }
 
-      return normalizeCropBox({
+      return {
         x: left,
         y: top,
         width: right - left,
         height: bottom - top,
-      }, bounds);
+      };
     }
 
     function createNormalizedSvg(svg, box) {
